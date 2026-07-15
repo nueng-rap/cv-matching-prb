@@ -42,29 +42,26 @@ body{min-height:100vh;background:linear-gradient(160deg,#060F2E 0%,#0D2460 50%,#
 .card-inner.shake{animation:shake .55s ease;}
 .card-face{backface-visibility:hidden;-webkit-backface-visibility:hidden;position:absolute;inset:0;border-radius:12px;overflow:hidden;}
 
-/* ── BACK — text only, perfectly centred ── */
+/* ── BACK — text only, perfectly centred, no logo ── */
 .card-back{
   background:linear-gradient(145deg,#0A1A4A,#142D80,#0D3575);
   border:1.5px solid rgba(147,197,253,.3);
   display:flex;align-items:center;justify-content:center;
 }
-.back-inner{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  text-align:center;gap:2px;
-}
+.back-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:2px;}
 .back-line1{font-size:11px;font-weight:900;color:#fff;letter-spacing:1.5px;white-space:nowrap;}
 .back-line2{font-size:11px;font-weight:900;color:#fff;letter-spacing:2.5px;white-space:nowrap;}
 .unity{color:#3AE4C9;}
 
-/* ── FRONT — full card, word centred in single line, blue glow ── */
+/* ── FRONT — word fills card, centred, single line, blue glow ── */
 .card-front{
   transform:rotateY(180deg);
-  position:absolute;inset:0;
-  border-radius:12px;
+  position:absolute;inset:0;border-radius:12px;
   display:flex;align-items:center;justify-content:center;
   background:linear-gradient(145deg,#1247B8,#1A5CD4);
   border:2px solid #2563EB;
   box-shadow:0 0 12px 3px rgba(33,104,253,.65),0 0 26px 7px rgba(33,104,253,.3);
+  padding:0;
 }
 .card-front.matched{
   background:linear-gradient(145deg,#0D3D8A,#1555B0);
@@ -72,7 +69,16 @@ body{min-height:100vh;background:linear-gradient(160deg,#060F2E 0%,#0D2460 50%,#
   box-shadow:0 0 14px 4px rgba(58,228,201,.7),0 0 30px 9px rgba(58,228,201,.35);
   animation:pulsematch 2s ease-in-out infinite;
 }
-/* The word label — single line, scaled to always fit, centred */
+
+/* ── The word container — key fix for overflow ── */
+.cv-word-wrap{
+  /* take exactly 88% of the card width, centred */
+  width:88%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;          /* clip anything that still overflows */
+}
 .cv-word{
   display:block;
   font-weight:900;
@@ -80,11 +86,12 @@ body{min-height:100vh;background:linear-gradient(160deg,#060F2E 0%,#0D2460 50%,#
   text-align:center;
   white-space:nowrap;
   text-shadow:0 1px 6px rgba(0,0,0,.5);
-  letter-spacing:1px;
-  /* width constraint so the word never overflows */
-  max-width:90%;
-  /* font-size is set dynamically by JS below */
+  letter-spacing:.5px;
+  /* font-size injected by JS; transform scale as safety net */
+  transform-origin:center;
+  max-width:100%;
 }
+
 .match-check{position:absolute;top:4px;right:6px;color:#3AE4C9;font-size:10px;font-weight:900;}
 
 /* ── Overlays ── */
@@ -206,12 +213,15 @@ body{min-height:100vh;background:linear-gradient(160deg,#060F2E 0%,#0D2460 50%,#
 <script>
 const TOTAL_TIME = 60;
 const VALUES = [
-  {id:1,label:"CONNECTION"},
-  {id:2,label:"CUSTOMERS"},
-  {id:3,label:"EXCELLENCE"},
-  {id:4,label:"INNOVATION"},
-  {id:5,label:"RESULTS"},
+  {id:1, label:"CONNECTION"},
+  {id:2, label:"CUSTOMERS"},
+  {id:3, label:"EXCELLENCE"},
+  {id:4, label:"INNOVATION"},
+  {id:5, label:"RESULTS"},
 ];
+
+/* ── Longest label for sizing reference ── */
+const LONGEST = "CONNECTION"; /* 10 chars */
 
 function fmt(s){return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");}
 
@@ -234,14 +244,30 @@ let cards=[],selected=[],moves=0,matches=0;
 let checking=false,gameWon=false,gameLost=false;
 let timeLeft=TOTAL_TIME,timerOn=false,timerIv=null;
 
-function startTimer(){
-  if(timerOn)return;
-  timerOn=true;
-  timerIv=setInterval(()=>{
-    timeLeft--;
-    updateTimerUI();
-    if(timeLeft<=0){clearInterval(timerIv);timerOn=false;gameLost=true;showLose();}
-  },1000);
+/* ── Font sizing ──────────────────────────────────────────────────────────
+   Strategy: measure actual card pixel width, then use a hidden off-screen
+   <canvas> to find the exact font-size where the longest word (CONNECTION)
+   fits within 84% of that width — no guessing, no approximation.         */
+function calcFontSize(){
+  const grid = document.getElementById("card-grid");
+  if(!grid || !grid.offsetWidth) return 10;
+  const totalW = grid.offsetWidth;
+  /* 5 columns, 4 gaps × 8 px */
+  const cardW = (totalW - 32) / 5;
+  const maxPx = cardW * 0.82; /* 82% of card width for the word */
+
+  /* binary-search the right font-size using Canvas measureText */
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  let lo = 6, hi = 18, best = 8;
+  while(lo <= hi){
+    const mid = (lo + hi) >> 1;
+    ctx.font = `900 ${mid}px Arial`;
+    const w = ctx.measureText(LONGEST).width;
+    if(w <= maxPx){ best = mid; lo = mid + 1; }
+    else { hi = mid - 1; }
+  }
+  return best;
 }
 
 function updateTimerUI(){
@@ -251,13 +277,13 @@ function updateTimerUI(){
   const border=danger?"rgba(239,68,68,.55)":warning?"rgba(251,191,36,.4)":"rgba(58,228,201,.35)";
   const grad=danger?"linear-gradient(90deg,#DC2626,#EF4444)":warning?"linear-gradient(90deg,#F59E0B,#FBBF24)":"linear-gradient(90deg,#2168FD,#3AE4C9)";
   const tb=document.getElementById("timer-box");
-  tb.style.background=bg;tb.style.borderColor=border;
+  tb.style.background=bg; tb.style.borderColor=border;
   const tv=document.getElementById("timer-val");
-  tv.textContent=fmt(timeLeft);tv.style.color=color;
+  tv.textContent=fmt(timeLeft); tv.style.color=color;
   document.getElementById("timer-lbl").style.color=color;
-  if(danger&&timerOn)tb.classList.add("danger-flash");else tb.classList.remove("danger-flash");
+  if(danger&&timerOn)tb.classList.add("danger-flash"); else tb.classList.remove("danger-flash");
   const bf=document.getElementById("bar-fill");
-  bf.style.width=((timeLeft/TOTAL_TIME)*100)+"%";bf.style.background=grad;
+  bf.style.width=((timeLeft/TOTAL_TIME)*100)+"%"; bf.style.background=grad;
 }
 
 function updateStats(){
@@ -285,39 +311,21 @@ function updateDots(){
   });
 }
 
-/* ── compute a font-size that fits the longest word in one line ──
-   We measure the actual rendered card width, then pick a font-size
-   so that the widest word (CONNECTION, 10 chars) fits inside 84% of the card.
-   Every other word is shorter so will have comfortable padding.          */
-function calcFontSize(){
-  const grid = document.getElementById("card-grid");
-  if(!grid) return "11px";
-  const totalW = grid.offsetWidth;
-  /* 5 columns, 4 gaps of 8px */
-  const cardW = Math.floor((totalW - 8*4) / 5);
-  /* Arial bold average char-width ≈ 0.62 × font-size
-     Longest label = CONNECTION = 10 chars + letter-spacing 1px × 9 gaps
-     We want: 10 × 0.62 × fs + 9 × 1 ≤ cardW × 0.84
-     → fs ≤ (cardW × 0.84 - 9) / (10 × 0.62)                            */
-  const fs = Math.floor((cardW * 0.84 - 9) / (10 * 0.62));
-  /* clamp between 8 and 14 px */
-  return Math.max(8, Math.min(14, fs)) + "px";
-}
-
 function renderGrid(){
-  const grid = document.getElementById("card-grid");
-  grid.innerHTML = "";
-  const fs = calcFontSize();
+  const grid=document.getElementById("card-grid");
+  grid.innerHTML="";
+
+  const fs = calcFontSize(); /* exact px integer */
 
   cards.forEach((card,idx)=>{
-    const revealed = card.flipped || card.matched;
-    const slot = document.createElement("div");
-    slot.className = "card-slot";
+    const revealed=card.flipped||card.matched;
+    const slot=document.createElement("div");
+    slot.className="card-slot";
 
-    slot.innerHTML = `
+    slot.innerHTML=`
       <div class="card-inner${revealed?" flipped":""}" id="ci-${idx}">
 
-        <!-- BACK: CommUNITY DAY 2026 — text only, centred, no logo -->
+        <!-- BACK: CommUNITY DAY 2026 — text only, centred -->
         <div class="card-face card-back">
           <div class="back-inner">
             <span class="back-line1">Comm<span class="unity">UNITY</span></span>
@@ -325,9 +333,11 @@ function renderGrid(){
           </div>
         </div>
 
-        <!-- FRONT: word only, fills full card, centred, single line, blue glow -->
+        <!-- FRONT: word fills full card, single line, centred, blue glow -->
         <div class="card-face card-front${card.matched?" matched":""}">
-          <span class="cv-word" style="font-size:${fs};">${card.label}</span>
+          <div class="cv-word-wrap">
+            <span class="cv-word" style="font-size:${fs}px;">${card.label}</span>
+          </div>
           ${card.matched?'<div class="match-check">✓</div>':""}
         </div>
 
@@ -337,6 +347,16 @@ function renderGrid(){
     grid.appendChild(slot);
   });
   updateDots();
+}
+
+function startTimer(){
+  if(timerOn)return;
+  timerOn=true;
+  timerIv=setInterval(()=>{
+    timeLeft--;
+    updateTimerUI();
+    if(timeLeft<=0){clearInterval(timerIv);timerOn=false;gameLost=true;showLose();}
+  },1000);
 }
 
 function handleClick(idx){
@@ -352,27 +372,27 @@ function handleClick(idx){
   selected.push(idx);
 
   if(selected.length===2){
-    checking=true;moves++;updateStats();
+    checking=true; moves++; updateStats();
     const[a,b]=selected;
     if(cards[a].pairId===cards[b].pairId){
       setTimeout(()=>{
-        cards[a].matched=true;cards[b].matched=true;
+        cards[a].matched=true; cards[b].matched=true;
         matches++;
         showBanner(cards[a].label);
-        updateStats();updateDots();renderGrid();
+        updateStats(); updateDots(); renderGrid();
         if(matches===5){gameWon=true;clearInterval(timerIv);timerOn=false;setTimeout(showWin,500);}
-        selected=[];checking=false;
+        selected=[]; checking=false;
       },480);
-    }else{
+    } else {
       const ciA=document.getElementById("ci-"+a);
       const ciB=document.getElementById("ci-"+b);
       if(ciA)ciA.classList.add("shake");
       if(ciB)ciB.classList.add("shake");
       setTimeout(()=>{
-        cards[a].flipped=false;cards[b].flipped=false;
+        cards[a].flipped=false; cards[b].flipped=false;
         if(ciA){ciA.classList.remove("flipped","shake");}
         if(ciB){ciB.classList.remove("flipped","shake");}
-        selected=[];checking=false;
+        selected=[]; checking=false;
       },820);
     }
   }
@@ -399,18 +419,17 @@ function showLose(){
 }
 
 function resetGame(){
-  clearInterval(timerIv);timerIv=null;
-  cards=buildCards();selected=[];moves=0;matches=0;
-  checking=false;gameWon=false;gameLost=false;
-  timeLeft=TOTAL_TIME;timerOn=false;
+  clearInterval(timerIv); timerIv=null;
+  cards=buildCards(); selected=[]; moves=0; matches=0;
+  checking=false; gameWon=false; gameLost=false;
+  timeLeft=TOTAL_TIME; timerOn=false;
   document.getElementById("win-overlay").style.display="none";
   document.getElementById("lose-overlay").style.display="none";
   document.getElementById("banner-wrap").innerHTML="";
-  updateStats();updateTimerUI();buildDotsRow();renderGrid();
+  updateStats(); updateTimerUI(); buildDotsRow(); renderGrid();
 }
 
 window.addEventListener("resize",()=>{if(cards.length)renderGrid();});
-
 resetGame();
 </script>
 </body>
